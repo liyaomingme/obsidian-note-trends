@@ -1,10 +1,10 @@
 {
-  "id": "obsidian-note-trends",
-  "name": "Note Trends & Insights",
+  "id": "obsidian-desktop-insights",
+  "name": "Desktop WordCloud & Trends",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "Visualizes your note-taking trends and extracts global word clouds from your entire vault.",
+  "description": "专为 Mac 和桌面端优化的笔记趋势与全局热词云引擎。",
   "author": "Your Name",
-  "authorUrl": "https://github.com/liyaomingme/obsidian-note-trends",
-  "isDesktopOnly": false
+  "authorUrl": "https://github.com/liyaomingme/obsidian-desktop-insights",
+  "isDesktopOnly": true
 }
