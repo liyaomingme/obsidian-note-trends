@@ -1,6 +1,6 @@
 {
   "name": "Desktop-WordCloud-Trends",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "Desktop WordCloud & Trends for Obsidian",
   "main": "main.js",
   "scripts": {
