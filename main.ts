@@ -117,7 +117,7 @@ class DesktopStatsView extends ItemView {
             
             const { chartLabels, chartValues, sortedWords } = await analyzeVaultData(this.app);
 
-            // 1. 苹果风丝滑渐变折线图
+            // 1. 苹果风单调平滑插值折线图 (已修复突刺问题)
             if (this.chartInstance) this.chartInstance.destroy();
             
             const ctx = (chartCanvas as HTMLCanvasElement).getContext('2d');
@@ -137,20 +137,22 @@ class DesktopStatsView extends ItemView {
                         data: chartValues,
                         borderColor: '#007AFF', 
                         backgroundColor: gradientFill,
-                        borderWidth: 2.5,
+                        borderWidth: 3, 
                         pointRadius: 0, 
                         pointHoverRadius: 6,
                         pointBackgroundColor: '#FFFFFF',
                         pointBorderColor: '#007AFF',
-                        pointBorderWidth: 2,
-                        tension: 0.4, 
+                        pointBorderWidth: 2.5,
+                        cubicInterpolationMode: 'monotone', // 核心防突刺魔法
                         fill: true
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    // 丝滑入场动画配置
+                    layout: {
+                        padding: { top: 20, right: 10 } // 顶部防贴边
+                    },
                     animation: {
                         duration: 1200,
                         easing: 'easeOutQuart',
@@ -163,28 +165,42 @@ class DesktopStatsView extends ItemView {
                     plugins: { 
                         legend: { display: false },
                         tooltip: { 
-                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
-                            backdropFilter: 'blur(10px)',
+                            backgroundColor: 'rgba(28, 28, 30, 0.75)',
+                            backdropFilter: 'blur(12px)',
                             padding: 12,
-                            cornerRadius: 8,
+                            cornerRadius: 10,
                             displayColors: false,
-                            titleFont: { size: 14, weight: '600' as const },
-                            bodyFont: { size: 13 },
+                            titleFont: { size: 14, weight: '600' as const, family: '-apple-system, BlinkMacSystemFont, sans-serif' },
+                            bodyFont: { size: 13, family: '-apple-system, BlinkMacSystemFont, sans-serif' },
                             borderWidth: 1,
-                            borderColor: 'rgba(255, 255, 255, 0.15)'
+                            borderColor: 'rgba(255, 255, 255, 0.1)'
                         }
                     },
                     scales: { 
                         x: { 
                             display: true, 
+                            border: { display: false }, 
                             grid: { display: false }, 
-                            ticks: { color: '#8E8E93', maxRotation: 45 } 
+                            ticks: { 
+                                color: '#8E8E93', 
+                                maxRotation: 45,
+                                font: { family: '-apple-system, BlinkMacSystemFont, sans-serif' }
+                            } 
                         },
                         y: { 
                             beginAtZero: true, 
                             border: { display: false }, 
-                            grid: { color: 'rgba(142, 142, 147, 0.1)' }, 
-                            ticks: { precision: 0, color: '#8E8E93', padding: 10 }
+                            grid: { 
+                                color: 'rgba(142, 142, 147, 0.15)', 
+                                drawTicks: false, 
+                                borderDash: [5, 5] 
+                            }, 
+                            ticks: { 
+                                precision: 0, 
+                                color: '#8E8E93', 
+                                padding: 12,
+                                font: { family: '-apple-system, BlinkMacSystemFont, sans-serif' }
+                            }
                         }
                     } 
                 }
