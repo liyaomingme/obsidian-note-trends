@@ -12,13 +12,12 @@ const STOP_WORDS = new Set([
     '各位', '谢谢', '由于', '其实', '只要', '目前', '开始'
 ]);
 
-// 核心重构：解耦逻辑坐标与渲染物理坐标，加入平滑缩放属性
 interface SphereNode {
     el: HTMLElement;
-    lx: number; ly: number; lz: number; // 逻辑层：永远随星系匀速旋转
-    rx: number; ry: number; rz: number; // 物理层：受弹簧和斥力影响的真实位置
-    vx: number; vy: number; vz: number; // 弹簧速度分量
-    currentScale: number;               // 纯 JS 接管的平滑弹簧缩放
+    lx: number; ly: number; lz: number; 
+    rx: number; ry: number; rz: number; 
+    vx: number; vy: number; vz: number; 
+    currentScale: number;               
     zRatio: number;
     baseFontSize: number;
     baseWeight: string;
@@ -26,7 +25,7 @@ interface SphereNode {
     filePaths: Set<string>;
 }
 
-// --- 物理级 3D 星系引擎 (流体磁斥力弹簧系统) ---
+// --- 物理级 3D 星系引擎 (完美响应式适配 + 流体磁斥力) ---
 class WordSphereEngine {
     container: HTMLElement;
     canvas: HTMLCanvasElement;
@@ -54,7 +53,6 @@ class WordSphereEngine {
 
     private onMouseMove = (e: MouseEvent) => {
         const rect = this.container.getBoundingClientRect();
-        // 实时追踪鼠标在画布内部的相对坐标，用于主角节点的绝对吸附
         this.canvasMouseX = e.clientX - rect.left - rect.width / 2;
         this.canvasMouseY = e.clientY - rect.top - rect.height / 2;
 
@@ -105,8 +103,27 @@ class WordSphereEngine {
         const rect = this.container.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return;
         
-        const containerMinSide = Math.min(rect.width, rect.height);
-        this.radius = Math.max((containerMinSide / 2) * 0.8, 65);
+        // 核心修复：极致响应式安全边距算法
+        // 为长单词保留左右各 38px 的绝对安全区，确保侧边栏再窄也不会被切断
+        const safeRadiusWidth = (rect.width / 2) - 38; 
+        const safeRadiusHeight = (rect.height / 2) - 20;
+        let newRadius = Math.min(safeRadiusWidth, safeRadiusHeight);
+        newRadius = Math.max(newRadius, 25); // 允许收缩到极小的 25px
+
+        // 无缝三维矩阵重映射：当侧边栏拉伸时，让所有星星平滑跟随缩放
+        if (this.radius > 0 && this.tags.length > 0 && this.radius !== newRadius) {
+            const scaleFactor = newRadius / this.radius;
+            this.tags.forEach(tag => {
+                tag.lx *= scaleFactor;
+                tag.ly *= scaleFactor;
+                tag.lz *= scaleFactor;
+                tag.rx *= scaleFactor;
+                tag.ry *= scaleFactor;
+                tag.rz *= scaleFactor;
+            });
+        }
+        
+        this.radius = newRadius;
 
         const dpr = window.devicePixelRatio || 1;
         this.canvas.width = rect.width * dpr;
@@ -121,7 +138,6 @@ class WordSphereEngine {
         tagEl.style.left = '50%';
         tagEl.style.top = '50%';
         tagEl.style.cursor = 'pointer';
-        // 核心：移除 transform 的 CSS 渐变，纯 JS 接管实现完美弹簧果冻效
         tagEl.style.willChange = 'transform, opacity, filter, color';
         tagEl.style.zIndex = '10'; 
         
@@ -141,7 +157,7 @@ class WordSphereEngine {
             lx: x, ly: cy, lz: z,
             rx: x, ry: cy, rz: z, 
             vx: 0, vy: 0, vz: 0,
-            currentScale: 1, // 初始比例
+            currentScale: 1, 
             zRatio: z / this.radius,
             baseFontSize,
             baseWeight,
@@ -175,7 +191,6 @@ class WordSphereEngine {
         const animate = () => {
             if (!this.isActive) return;
 
-            // 无论悬停与否，背景星系绝不刹车，保持惯性与匀速漂移
             if (!this.isDragging) {
                 const speed = Math.sqrt(this.velocityX ** 2 + this.velocityY ** 2);
                 if (speed > this.targetMinSpeed) {
@@ -199,7 +214,6 @@ class WordSphereEngine {
             const colorNormal = getComputedColor('--text-normal', '#333333');
             const neutralLineColor = '128, 128, 128'; 
 
-            // 1. 永远以匀速更新底层逻辑坐标系
             this.tags.forEach(tag => {
                 const x1 = tag.lx * Math.cos(this.velocityY) - tag.lz * Math.sin(this.velocityY);
                 const z1 = tag.lz * Math.cos(this.velocityY) + tag.lx * Math.sin(this.velocityY);
@@ -208,35 +222,34 @@ class WordSphereEngine {
                 tag.lx = x1; tag.ly = y1; tag.lz = z2;
             });
 
-            // 2. 磁力物理学运算：弹簧振子与避让斥力
             this.tags.forEach(tag => {
                 let targetX = tag.lx;
                 let targetY = tag.ly;
                 let targetZ = tag.lz;
 
                 if (this.hoveredTag === tag) {
-                    // 主角：脱离星系旋转，吸附到鼠标正下方，并拉到最前方
                     targetX = this.canvasMouseX;
                     targetY = this.canvasMouseY;
                     targetZ = this.radius; 
                 } else if (this.hoveredTag) {
-                    // 配角：流水避让磁场 (Repulsion Field)，防止转过来时挡住主角
+                    // 核心修复：斥力场随球体半径动态自适应，防止狭窄空间下排斥力过猛
                     const dx = tag.lx - this.hoveredTag.rx; 
                     const dy = tag.ly - this.hoveredTag.ry;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    const avoidRadius = 80; 
+                    const avoidRadius = Math.max(35, this.radius * 1.1); // 动态斥力半径
 
                     if (dist > 0 && dist < avoidRadius) {
                         const force = Math.pow((avoidRadius - dist) / avoidRadius, 2); 
-                        targetX += (dx / dist) * force * 90;
-                        targetY += (dy / dist) * force * 90;
-                        targetZ -= force * 40; 
+                        const pushIntensityX = this.radius * 1.3;
+                        const pushIntensityZ = this.radius * 0.6;
+                        targetX += (dx / dist) * force * pushIntensityX;
+                        targetY += (dy / dist) * force * pushIntensityX;
+                        targetZ -= force * pushIntensityZ; 
                     }
                 }
 
-                // 核心手感：极致 Q 弹的弹簧震荡系统
-                const stiffness = 0.10; // 柔软的拉力
-                const damping = 0.72;   // 完美的果冻阻尼
+                const stiffness = 0.10; 
+                const damping = 0.72; 
                 
                 tag.vx += (targetX - tag.rx) * stiffness;
                 tag.vy += (targetY - tag.ry) * stiffness;
@@ -252,17 +265,15 @@ class WordSphereEngine {
                 
                 tag.zRatio = tag.rz / this.radius;
 
-                // JS 接管平滑缩放，悬停放大，离开后弹簧式恢复
                 let targetScale = 1;
                 if (this.hoveredTag) {
                     if (tag.renderState === 'focused') targetScale = 1.25;
                     else if (tag.renderState === 'co-occurring') targetScale = 1;
-                    else targetScale = 0.85; // 无关节点缩小避让
+                    else targetScale = 0.85; 
                 }
                 tag.currentScale += (targetScale - tag.currentScale) * 0.15;
             });
 
-            // 按照渲染的物理深度重新排序
             const renderList = [...this.tags].sort((a, b) => a.rz - b.rz);
 
             renderList.forEach(item => {
@@ -280,11 +291,9 @@ class WordSphereEngine {
                 this.drawConnectionLine(cx, cy, item, neutralLineColor, colorNormal, colorAccent);
             });
 
-            // 3. 渲染 DOM 文字深度与颜色
             renderList.forEach(item => {
                 const tag = item;
                 
-                // 景深逻辑提取：颜色与透明度严格基于 Z 轴
                 let baseOpacity = 0; let blur = 0; let color = 'var(--text-faint)';
                 if (item.zRatio > 0.4) {
                     baseOpacity = 0.95; blur = 0; color = 'var(--text-normal)'; 
@@ -295,25 +304,20 @@ class WordSphereEngine {
                     blur = Math.min(2.5, Math.abs(item.zRatio) * 2.5); color = 'var(--text-faint)';
                 }
 
-                // 悬停交互覆盖
                 if (this.hoveredTag) {
                     if (tag.renderState === 'focused') {
-                        // 主角自然提到最前，享受最清晰画质
                         baseOpacity = 1;
                         blur = 0;
                     } else if (tag.renderState === 'co-occurring') {
-                        // 关联网络微微提亮
                         color = 'var(--interactive-accent)';
                         blur = 0;
                         baseOpacity = Math.max(baseOpacity, 0.6);
                     } else {
-                        // 无关字词隐身退晕
                         blur = 4;
                         baseOpacity = 0.05;
                     }
                 }
 
-                // 计算最终渲染缩放：原生景深缩放 × 交互弹性缩放
                 const depthScale = 0.65 + 0.5 * ((this.radius + tag.rz) / (2 * this.radius)); 
                 const finalScale = depthScale * tag.currentScale; 
 
@@ -332,7 +336,6 @@ class WordSphereEngine {
     }
 
     private drawConnectionLine(cx: number, cy: number, item: SphereNode, neutralRGB: string, normalColor: string, accentColor: string) {
-        // 1. 严格计算它在匀速运动时本该有的高级景深透明度
         let depthOpacity = 0;
         let depthWidth = 0.4;
         
@@ -352,7 +355,6 @@ class WordSphereEngine {
         this.ctx.lineTo(cx + item.rx, cy + item.ry);
         this.ctx.lineWidth = depthWidth;
 
-        // 2. 悬停时：拒绝生硬加粗，完全保留原生游丝感，仅仅屏蔽无关线
         if (this.hoveredTag) {
             if (item.renderState === 'focused') {
                 this.ctx.strokeStyle = `rgb(${neutralRGB})`;
@@ -361,7 +363,7 @@ class WordSphereEngine {
                 this.ctx.strokeStyle = accentColor;
                 this.ctx.globalAlpha = depthOpacity * 1.2; 
             } else {
-                this.ctx.globalAlpha = 0; // 直接隐身
+                this.ctx.globalAlpha = 0; 
             }
         } else {
             this.ctx.strokeStyle = `rgb(${neutralRGB})`;
@@ -535,8 +537,13 @@ class DesktopStatsHeatmapView extends ItemView {
             const heatmapWords = await analyzeVaultData(this.app);
             const maxWordCount = heatmapWords.length > 0 ? heatmapWords[0].value : 1;
 
-            const containerMinSide = Math.min(heatmapDiv.clientWidth || 250, heatmapDiv.clientHeight || 250);
-            const baseRadius = Math.max((containerMinSide / 2) * 0.8, 65); 
+            // 动态读取容器安全范围，适配极端拉伸场景
+            const containerWidth = heatmapDiv.clientWidth || 250;
+            const containerHeight = heatmapDiv.clientHeight || 250;
+            const safeWidth = (containerWidth / 2) - 38;
+            const safeHeight = (containerHeight / 2) - 20;
+            let baseRadius = Math.min(safeWidth, safeHeight);
+            baseRadius = Math.max(baseRadius, 25); // 最低保底半径降至25px
 
             this.sphereEngine = new WordSphereEngine(heatmapDiv, baseRadius);
 
