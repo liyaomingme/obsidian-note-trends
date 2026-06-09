@@ -12,7 +12,6 @@ const STOP_WORDS = new Set([
     '各位', '谢谢', '由于', '其实', '只要', '目前', '开始'
 ]);
 
-// 节点数据类型接口，严格规范 TS 类型，防止 GitHub 报错
 interface SphereNode {
     el: HTMLElement;
     x: number;
@@ -23,7 +22,7 @@ interface SphereNode {
     baseFontSize: number;
     baseWeight: string;
     renderState: string;
-    filePaths: Set<string>; // 直接把路径存入节点，省去查找
+    filePaths: Set<string>;
 }
 
 class WordSphereEngine {
@@ -64,7 +63,7 @@ class WordSphereEngine {
         this.handleResize();
         this.setupMouseListeners();
 
-        // @ts-ignore - 防止某些旧版 tsconfig 不认识 ResizeObserver
+        // @ts-ignore
         this.resizeObserver = new ResizeObserver(() => this.handleResize());
         this.resizeObserver.observe(this.container);
     }
@@ -82,6 +81,9 @@ class WordSphereEngine {
 
     addTag(tagEl: HTMLElement, baseFontSize: number, baseWeight: string, filePaths: Set<string>) {
         tagEl.style.position = 'absolute';
+        // 核心修复：绝对定位锚点在容器中心，彻底解决文字缩在右下角不跟线对齐的 Bug
+        tagEl.style.left = '50%';
+        tagEl.style.top = '50%';
         tagEl.style.cursor = 'pointer';
         tagEl.style.willChange = 'transform, opacity, filter';
         tagEl.style.zIndex = '10'; 
@@ -188,25 +190,28 @@ class WordSphereEngine {
 
             renderList.forEach(item => {
                 const tag = item;
+                // 核心修复：translate(-50%, -50%) 确保文字绝对居中于连线的端点
+                const baseTransform = `translate(-50%, -50%) translate3d(${tag.x}px, ${tag.y}px, 0px)`;
+                
                 if (this.isHoveringNode) {
                     if (tag.renderState === 'focused') {
                         tag.el.style.opacity = '1';
                         tag.el.style.filter = 'blur(0px)';
-                        tag.el.style.transform = `translate3d(${cx + tag.x - tag.el.offsetWidth/2}px, ${cy + tag.y - tag.el.offsetHeight/2}px, 0px) scale(1.15)`;
+                        tag.el.style.transform = `${baseTransform} scale(1.15)`;
                         tag.el.style.zIndex = '99999';
                         tag.el.style.color = 'var(--text-normal)';
                         tag.el.style.textShadow = '0 8px 24px rgba(0,0,0,0.1)';
                     } else if (tag.renderState === 'co-occurring') {
                         tag.el.style.opacity = '0.5';
                         tag.el.style.filter = 'blur(0px)';
-                        tag.el.style.transform = `translate3d(${cx + tag.x - tag.el.offsetWidth/2}px, ${cy + tag.y - tag.el.offsetHeight/2}px, 0px) scale(1)`;
+                        tag.el.style.transform = `${baseTransform} scale(1)`;
                         tag.el.style.zIndex = '50000';
                         tag.el.style.color = 'var(--text-muted)';
                         tag.el.style.textShadow = 'none';
                     } else {
                         tag.el.style.opacity = '0.04';
                         tag.el.style.filter = `blur(6px)`;
-                        tag.el.style.transform = `translate3d(${cx + tag.x - tag.el.offsetWidth/2}px, ${cy + tag.y - tag.el.offsetHeight/2}px, 0px) scale(0.9)`;
+                        tag.el.style.transform = `${baseTransform} scale(0.9)`;
                         tag.el.style.zIndex = '10';
                         tag.el.style.color = 'var(--text-faint)';
                         tag.el.style.textShadow = 'none';
@@ -228,7 +233,7 @@ class WordSphereEngine {
                     const scale = (this.radius + tag.z) / (2 * this.radius); 
                     const finalScale = 0.6 + 0.55 * scale; 
 
-                    tag.el.style.transform = `translate3d(${cx + tag.x - tag.el.offsetWidth/2}px, ${cy + tag.y - tag.el.offsetHeight/2}px, 0px) scale(${finalScale})`;
+                    tag.el.style.transform = `${baseTransform} scale(${finalScale})`;
                     tag.el.style.opacity = opacity.toString();
                     tag.el.style.filter = `blur(${blur}px)`;
                     tag.el.style.zIndex = Math.round(tag.z + this.radius).toString();
@@ -300,16 +305,13 @@ async function analyzeVaultData(app: App) {
             .replace(/[0-9a-fA-F]{8,}/g, ' ') 
             .replace(/[^\u4e00-\u9fa5a-zA-Z]/g, ' '); 
 
-        // 核心修复：绕过 GitHub 严格检查的 Intl API 调用
         let segments: any[] = [];
         const IntlAny = Intl as any;
         if (IntlAny.Segmenter) {
             const segmenter = new IntlAny.Segmenter('zh-CN', { granularity: 'word' });
-            // Segmenter returns an iterable, we convert it to an array
             const iterator = segmenter.segment(cleanText);
             segments = Array.from(iterator);
         } else {
-            // 兜底方案，防止没有 Segmenter 时崩溃
             const fallbackWords = cleanText.match(/[\u4e00-\u9fa5]{2,}|\b[a-zA-Z]{3,}\b/g) || [];
             segments = fallbackWords.map((w: string) => ({ segment: w, isWordLike: true }));
         }
@@ -390,7 +392,7 @@ class DesktopStatsHeatmapView extends ItemView {
     
     constructor(leaf: WorkspaceLeaf) { super(leaf); }
     getViewType() { return VIEW_TYPE_STATS_HEATMAP; }
-    getDisplayText() { return "神经元拓扑网络"; }
+    getDisplayText() { return "拓扑网络"; }
     getIcon() { return "network"; } 
 
     async onOpen() {
@@ -403,9 +405,26 @@ class DesktopStatsHeatmapView extends ItemView {
             -webkit-font-smoothing: antialiased; background-color: var(--background-secondary);
         `);
 
-        const headerDiv = container.createDiv({ attr: { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-shrink: 0;' } });
-        headerDiv.createEl("h2", { text: "神经元拓扑网络", attr: { style: 'margin: 0; font-size: 1.7em; font-weight: 800; letter-spacing: -0.5px;' } });
-        const refreshBtn = headerDiv.createEl("button", { text: "重构突触", attr: { style: 'padding: 8px 20px; cursor: pointer; background-color: var(--interactive-accent); color: var(--text-on-accent); border-radius: 20px; border: none; font-size: 0.9em; font-weight: 500;' } });
+        // 核心修改：将标题变成刷新触发器，并去掉重构按钮
+        const headerDiv = container.createDiv({ 
+            attr: { 
+                style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-shrink: 0; cursor: pointer; opacity: 0.85; transition: opacity 0.2s ease;',
+                title: '点击重新构建突触'
+            } 
+        });
+        
+        const titleDiv = headerDiv.createDiv({
+            attr: { style: 'display: flex; align-items: center; white-space: nowrap;' }
+        });
+        const iconSpan = titleDiv.createEl('span', { attr: { style: 'width: 24px; height: 24px; color: var(--text-normal); margin-right: 12px; display: flex; align-items: center;' } });
+        setIcon(iconSpan, 'network'); 
+        
+        const titleText = titleDiv.createEl("h1", { 
+            text: "拓扑网络", 
+            attr: { 
+                style: 'margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-normal); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;' 
+            } 
+        });
         
         const contentWrapper = container.createDiv({ attr: { style: 'display: flex; flex-direction: column; flex: 1; min-height: 0;' } });
         const heatmapDiv = contentWrapper.createDiv({ 
@@ -413,7 +432,10 @@ class DesktopStatsHeatmapView extends ItemView {
         });
 
         const renderData = async () => {
-            refreshBtn.innerText = "突触建立中..."; refreshBtn.disabled = true;
+            headerDiv.style.opacity = '0.3';
+            titleText.innerText = "突触建立中...";
+            headerDiv.style.pointerEvents = 'none';
+
             if (this.sphereEngine) this.sphereEngine.destroy();
             heatmapDiv.empty();
             
@@ -469,10 +491,16 @@ class DesktopStatsHeatmapView extends ItemView {
             });
 
             this.sphereEngine.startAnimation();
-            refreshBtn.innerText = "重构突触"; refreshBtn.disabled = false;
+
+            headerDiv.style.pointerEvents = 'auto';
+            titleText.innerText = "拓扑网络";
+            headerDiv.style.opacity = '0.85';
         };
 
-        refreshBtn.addEventListener('click', renderData);
+        headerDiv.addEventListener('mouseenter', () => headerDiv.style.opacity = '1');
+        headerDiv.addEventListener('mouseleave', () => headerDiv.style.opacity = '0.85');
+        headerDiv.addEventListener('click', renderData);
+        
         setTimeout(renderData, 200); 
     }
 
@@ -482,8 +510,8 @@ class DesktopStatsHeatmapView extends ItemView {
 export default class DesktopStatsPlugin extends Plugin {
     async onload() {
         this.registerView(VIEW_TYPE_STATS_HEATMAP, (leaf) => new DesktopStatsHeatmapView(leaf));
-        this.addRibbonIcon('network', '打开神经元拓扑网络', () => this.activateView());
-        this.addCommand({ id: 'open-typographic-insights', name: '打开神经元拓扑网络', callback: () => this.activateView() });
+        this.addRibbonIcon('network', '打开拓扑网络', () => this.activateView());
+        this.addCommand({ id: 'open-typographic-insights', name: '打开拓扑网络', callback: () => this.activateView() });
     }
     async onunload() { this.app.workspace.detachLeavesOfType(VIEW_TYPE_STATS_HEATMAP); }
     async activateView() {
